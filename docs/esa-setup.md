@@ -19,9 +19,9 @@
 
 **地域要和边缘节点同域**。本项目域名没有备案，ESA 只从香港节点服务，所以实例选 **中国香港**（若选上海就变成跨境回源，单次读 200–2600ms）。
 
-1. [OTS 控制台](https://otsnext.console.aliyun.com/) 切到 `中国香港`，创建实例：CU 模式（按量）、高性能型、同城冗余，实例名例如 `word-meet-hk`。
+1. [OTS 控制台](https://otsnext.console.aliyun.com/) 切到 `中国香港`，创建实例（现用 `c02emuu39p06`，VCU 模式免费试用）。
 2. 实例 → **网络管理** → 编辑 → 勾选 **公网** → 保存。不勾会报 `OTSAuthFailed: Request denied by instance ACL policies`。
-3. 实例 → **创建数据表**：表名 `rooms`，表主键一个 `code`，类型 **字符串**。
+3. 不用手工建表：函数遇到「表不存在」会自动 `CreateTable`（`rooms`，主键 `code` 字符串，TTL 86400）再重试一次。
 
 ## 2. 创建 AccessKey
 
@@ -33,8 +33,8 @@ ESA 控制台 → 函数和 Pages → `word-meet` → **基本信息** → 函�
 
 | 键 | 值 | 加密 |
 | --- | --- | --- |
-| `OTS_ENDPOINT` | `https://word-meet-hk.cn-hongkong.ots.aliyuncs.com` | 否 |
-| `OTS_INSTANCE` | `word-meet-hk` | 否 |
+| `OTS_ENDPOINT` | `https://c02emuu39p06.cn-hongkong.ots.aliyuncs.com` | 否 |
+| `OTS_INSTANCE` | `c02emuu39p06` | 否 |
 | `OTS_ACCESS_KEY_ID` | AccessKey ID | 是 |
 | `OTS_ACCESS_KEY_SECRET` | AccessKey Secret | 是 |
 | `OTS_TABLE` | `rooms`（可省略，默认即 rooms） | 否 |
