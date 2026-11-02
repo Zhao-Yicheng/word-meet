@@ -601,7 +601,18 @@ export function createOtsStore(config) {
   const tableField = () => pbString(1, table);
   const conditionIgnore = () => pbBytes(3, toBytes([...pbTag(1, 0), 0])); // Condition{ row_existence = IGNORE(0) }
 
+  let tableEnsured = false;
+
   return {
+    // 首次写入前按需建表：新实例（比如换了免费实例）里没有表时，
+    // 上层捕获 OTSObjectNotExist 后调用一次，避免上线前还要手工建表。
+    async ensureTable() {
+      if (tableEnsured) return false;
+      const created = await createOtsTable(base);
+      tableEnsured = true;
+      return created;
+    },
+
     async get(key) {
       const body = toBytes([
         ...tableField(),

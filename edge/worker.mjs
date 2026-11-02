@@ -78,6 +78,19 @@ function describeError(error) {
   return `${code} ${message}`.trim().slice(0, 200);
 }
 
+// 表不存在时自动建一次再重试：换实例（例如切到免费实例）后不用手工建表。
+async function withTable(store, run) {
+  try {
+    return await run();
+  } catch (error) {
+    if (error && error.code === 'OTSObjectNotExist' && typeof store.ensureTable === 'function') {
+      await store.ensureTable();
+      return await run();
+    }
+    throw error;
+  }
+}
+
 async function handleApi(request, env) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS });
   if (request.method !== 'POST') return json({ code: 'PT405', message: '请使用 POST 调用房间接口' }, 405);
@@ -103,8 +116,9 @@ async function handleApi(request, env) {
     if (store) {
       const started = Date.now();
       try {
-        await store.get('__diagnose__');
+        await withTable(store, () => store.get('__diagnose__'));
         report.readOk = true;
+        report.tableOk = true;
       } catch (error) {
         report.readOk = false;
         report.readError = describeError(error);
@@ -117,7 +131,7 @@ async function handleApi(request, env) {
   if (!store) return json({ code: 'PT503', message: '房间存储未配置，请检查函数变量' }, 503);
 
   try {
-    const reply = await createRoomApi(store, { verifyWrites: false }).handle(body, utf8Length(text));
+    const reply = await withTable(store, () => createRoomApi(store, { verifyWrites: false }).handle(body, utf8Length(text)));
     return json(reply.body, reply.status);
   } catch (error) {
     const debug = env.OTS_DEBUG === '1' ? describeError(error) : undefined;
