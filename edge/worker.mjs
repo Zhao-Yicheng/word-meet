@@ -66,7 +66,7 @@ async function handleApi(request) {
     const reply = await createRoomApi(edgeStore()).handle(body, utf8Length(text));
     return json(reply.body, reply.status);
   } catch (error) {
-    return json({ code: 'PT500', message: '房间服务暂时不可用，请稍后重试' }, 500);
+    return json({ code: 'PT500', message: '房间服务暂时不可用，请稍后重试', debug: String(error && error.stack || error) }, 500);
   }
 }
 
