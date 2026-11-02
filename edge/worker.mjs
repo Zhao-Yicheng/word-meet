@@ -63,6 +63,23 @@ async function handleApi(request) {
   try { body = JSON.parse(text); }
   catch { return json({ code: 'PT400', message: '请求格式无效' }, 400); }
   try {
+    if (body.action === 'kvprobe') {
+      const kv = new EdgeKV({ namespace: KV_NAMESPACE });
+      const out = {};
+      const probeKey = 'probe-' + Date.now();
+      out.readExisting = await kv.get('room-DV7DMYJR', { type: 'text' })
+        .then((v) => (typeof v === 'string' ? v.slice(0, 60) : 'typeof:' + typeof v))
+        .catch((e) => 'ERR ' + e);
+      await kv.put(probeKey, 'probe-value');
+      out.readOwnWrite = await kv.get(probeKey, { type: 'text' })
+        .then((v) => 'typeof:' + typeof v + ' value:' + String(v))
+        .catch((e) => 'ERR ' + e);
+      out.readDefaultType = await kv.get(probeKey)
+        .then((v) => 'typeof:' + typeof v)
+        .catch((e) => 'ERR ' + e);
+      await kv.delete(probeKey).catch(() => {});
+      return json(out);
+    }
     const reply = await createRoomApi(edgeStore(), { verifyWrites: false }).handle(body, utf8Length(text));
     return json(reply.body, reply.status);
   } catch (error) {
