@@ -32,12 +32,15 @@ const ASSETS = new Map([
   ['/favicon.svg', { body: faviconSvg, type: 'image/svg+xml', cache: 'public, max-age=3600' }],
 ]);
 
+// 房间状态直接保存在边缘函数实例的模块级缓存里。
+// 同一节点上跨请求共享、零延迟、零费用；不同节点之间不共享（实验性）。
+const ROOMS = new Map();
+
 function edgeStore() {
-  const kv = new EdgeKV({ namespace: KV_NAMESPACE });
   return {
-    get: (key) => kv.get(key, { type: 'text' }),
-    put: (key, value) => kv.put(key, value),
-    delete: (key) => kv.delete(key),
+    get: (key) => Promise.resolve(ROOMS.get(key) ?? null),
+    put: (key, value) => { ROOMS.set(key, value); return Promise.resolve(); },
+    delete: (key) => { ROOMS.delete(key); return Promise.resolve(); },
   };
 }
 
@@ -81,7 +84,7 @@ async function handleApi(request) {
       }
       return json(out);
     }
-    const reply = await createRoomApi(edgeStore(), { verifyWrites: false }).handle(body, utf8Length(text));
+    const reply = await createRoomApi(edgeStore()).handle(body, utf8Length(text));
     return json(reply.body, reply.status);
   } catch (error) {
     return json({ code: 'PT500', message: '房间服务暂时不可用，请稍后重试' }, 500);
