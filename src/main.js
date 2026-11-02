@@ -1,6 +1,7 @@
 import { GameSession, parseRoomCode } from './game.js';
 import { RoomConnection, cleanName } from './room.js';
 import { prettyHref } from './host.js';
+import { renderShareCard, downloadShareCard } from './share-card.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { mode: 'create', busy: false, inRoom: false, connected: false, code: '', role: '', game: null, network: null, names: [], seat: 0, protocolError: false };
@@ -235,6 +236,7 @@ function renderGame() {
   $('round-result').hidden = !revealed;
   $('result-message').textContent = matched ? `成功，共用 ${view.round} 轮。` : '词语不同，继续下一轮。';
   $('next-button').disabled = !active || view.ready[own];
+  $('export-button').hidden = !matched;
   $('next-button').textContent = view.ready[own] ? '等待对方准备…' : matched ? '再来一局' : '继续联想 →';
   $('ready-note').textContent = view.ready[own] ? '你已准备，等待对方确认。' : view.ready[other] ? '对方已准备，点击即可继续。' : matched ? '双方确认后开始新的一局。' : '双方准备后开始下一轮。';
   const historyKey = `${state.game.sessionId}-${view.match}-${view.history.length}-${matched}`;
@@ -379,6 +381,23 @@ $('next-button').addEventListener('click', () => {
   if (!state.connected || state.protocolError) return;
   try { state.game?.readyNext(); }
   catch (error) { showError('word-error', error.message); }
+});
+$('export-button').addEventListener('click', async () => {
+  const game = state.game;
+  if (!game || game.view.phase !== 'matched') return;
+  const button = $('export-button');
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    const view = game.view;
+    const canvas = renderShareCard({ names: state.names, history: view.history, seat: state.seat });
+    await downloadShareCard(canvas, `同词相遇-本局总览-${view.history.length}轮.png`);
+    toast('截图已保存，可以直接发给朋友。');
+  } catch (error) {
+    toast(error?.message || '导出失败，请重试。');
+  } finally {
+    button.disabled = false;
+  }
 });
 $('reconnect-button').addEventListener('click', () => {
   if (state.busy) return;

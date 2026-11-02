@@ -19,6 +19,8 @@ async function buildWorker(root) {
     'src/game.js': "export const value = 'game';\n",
     'src/room.js': "import './config.js';\nconsole.log('room');",
     'src/host.js': "export function prettyHref(href) { return href; }\n",
+    'src/share-card.js': "import { QR_MATRIX } from './qr-card.js';\nexport function renderShareCard() { return QR_MATRIX.length; }\n",
+    'src/qr-card.js': "export const QR_SIZE = 1;\nexport const QR_MATRIX = ['1'];\n",
     'src/config.js': 'export const ROOM_ENDPOINT = "";',
     'src/style.css': 'body{color:#f5f2eb}',
     'public/favicon.svg': '<svg/>',

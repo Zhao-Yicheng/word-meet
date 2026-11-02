@@ -51,3 +51,6 @@
 .footer-link{text-decoration:underline;text-underline-offset:3px;text-decoration-color:#c3c7b8;text-decoration-thickness:1px}
 .footer-link:hover{color:var(--coral);text-decoration-color:currentColor}
 @media(max-width:760px){.site-footer{gap:4px 12px}.site-footer>span:first-child{line-height:1.8}}
+
+/* 结束对局时「再来一局」与「导出截图」并排。 */
+.result-actions{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;align-items:center}
