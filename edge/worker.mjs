@@ -79,11 +79,19 @@ function describeError(error) {
 }
 
 // 表不存在时自动建一次再重试：换实例（例如切到免费实例）后不用手工建表。
+// 注意 Tablestore 对不存在的表返回的是 OTSParameterInvalid + "Request table not exist"，
+// 不是 OTSObjectNotExist，所以两条都要认。
+function isMissingTable(error) {
+  if (!error) return false;
+  if (error.code === 'OTSObjectNotExist') return true;
+  return /table not exist/i.test(String(error.message || ''));
+}
+
 async function withTable(store, run) {
   try {
     return await run();
   } catch (error) {
-    if (error && error.code === 'OTSObjectNotExist' && typeof store.ensureTable === 'function') {
+    if (isMissingTable(error) && typeof store.ensureTable === 'function') {
       await store.ensureTable();
       return await run();
     }
