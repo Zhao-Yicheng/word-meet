@@ -663,5 +663,16 @@ export async function createOtsTable(config) {
   }
 }
 
+/** 删表（运维脚本用，幂等：表不存在时静默返回 false）。 */
+export async function deleteOtsTable(config) {
+  try {
+    await request({ ...config }, 'DeleteTable', toBytes(pbString(1, config.table)));
+    return true;
+  } catch (error) {
+    if (error && (error.code === 'OTSObjectNotExist' || error.code === 'OTSTableNotFound')) return false;
+    throw error;
+  }
+}
+
 // 供本地自测使用
 export const __internals = { md5, sha1, hmacSha1, base64, encodeRow, encodePrimaryKey, encodeDeleteKey, decodeRow, pbParse };
