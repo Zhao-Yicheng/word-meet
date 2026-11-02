@@ -63,10 +63,10 @@ async function handleApi(request) {
   try { body = JSON.parse(text); }
   catch { return json({ code: 'PT400', message: '请求格式无效' }, 400); }
   try {
-    const reply = await createRoomApi(edgeStore()).handle(body, utf8Length(text));
+    const reply = await createRoomApi(edgeStore(), { verifyWrites: false }).handle(body, utf8Length(text));
     return json(reply.body, reply.status);
   } catch (error) {
-    return json({ code: 'PT500', message: '房间服务暂时不可用，请稍后重试', debug: String(error && error.stack || error) }, 500);
+    return json({ code: 'PT500', message: '房间服务暂时不可用，请稍后重试' }, 500);
   }
 }
 

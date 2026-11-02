@@ -196,11 +196,13 @@ const jsonByteLength = (body) => utf8Bytes(JSON.stringify(body)).length;
 
 // ---- 协议入口 ----
 
-export function createRoomApi(store, { now = () => Date.now() } = {}) {
+export function createRoomApi(store, { now = () => Date.now(), verifyWrites = true } = {}) {
   const roomKey = (code) => 'room-' + code;
 
   // mutate：乐观锁修改房间文档。apply 收到当前文档（缺失为 null），
   // 返回 { result, next?: 新文档, remove?: true }。只读结果不带 next。
+  // verifyWrites=false 时信任 put 的持久性（适用于最终一致的边缘 KV，
+  // 如阿里云 ESA：写后立即重读看不到新值，且每次调用 KV 操作数有上限）。
   async function mutate(key, apply, attempts = 8) {
     let conflict = fail('PT503', '房间服务繁忙，请稍后重试');
     for (let attempt = 0; attempt < attempts; attempt++) {
@@ -215,6 +217,7 @@ export function createRoomApi(store, { now = () => Date.now() } = {}) {
       if (!change.next) return change.result;
       const next = { ...change.next, rev: (doc?.rev ?? 0) + 1, writeId: randomHex(8) };
       await store.put(key, JSON.stringify(next));
+      if (!verifyWrites) return change.result;
       const verify = await store.get(key);
       let survived = false;
       if (typeof verify === 'string' && verify) {
@@ -234,7 +237,7 @@ export function createRoomApi(store, { now = () => Date.now() } = {}) {
     const token = randomToken();
     const tokenHash = sha256hex(token);
     return (async () => {
-      for (let attempt = 0; attempt < 5; attempt++) {
+      for (let attempt = 0; attempt < 3; attempt++) {
         const code = randomCode();
         const result = await mutate(roomKey(code), (doc) => {
           if (doc) return { result: null }; // 房间码撞车，换一个重试
