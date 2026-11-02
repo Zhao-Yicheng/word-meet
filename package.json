@@ -12,9 +12,7 @@
     "start": "node scripts/serve.mjs",
     "test": "node --test test/*.test.js",
     "build": "node scripts/build.mjs",
+    "build:esa": "node scripts/build.mjs && node scripts/buildesa.mjs",
     "preview": "node scripts/serve.mjs --dist"
-  },
-  "devDependencies": {
-    "@electric-sql/pglite": "0.5.14"
   }
 }

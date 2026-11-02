@@ -2,9 +2,7 @@
 
 双人在线联想游戏。两人分别输入词语，提交后同时揭晓，再结合上轮两个词继续联想，直到词语相同。
 
-[游戏入口](https://csq-an94.github.io/word-meet/) · [Supabase 注册与接入步骤](docs/supabase-setup.md)
-
-当前版本已在原 GitHub Pages 入口上线，使用 Supabase 免费项目联机。公开 HTTPS 接口、跨来源访问、并发加入、消息去重和浏览器双人完整对局已验证。详见 [部署检查记录](docs/implementation.md)。
+部署在阿里云 ESA：网页和房间后端打包进同一个边缘函数，存储用边缘 KV，不需要源站服务器。[ESA 部署步骤](docs/esa-setup.md)
 
 ## 开始游戏
 
@@ -19,21 +17,20 @@
 
 ## 联机方式
 
-GitHub Pages 托管网页，Supabase 托管 PostgreSQL 和 HTTPS 接口。两个浏览器分别访问同一个 Supabase 项目，不要求相同设备或 Wi-Fi。回合制消息使用短轮询，不依赖 WebRTC、NAT 穿透、第三方 Cookie 或 WebSocket。
+整个应用是一个 ESA 边缘函数：浏览器打开网站域名，`POST /api/room` 就从同一个边缘函数走房间协议，网页资源也从同一个函数返回。两个浏览器分别访问同一个域名，不要求相同设备或 Wi-Fi。回合制消息使用短轮询，不依赖 WebRTC、NAT 穿透、第三方 Cookie 或 WebSocket。
 
-- 房间最多两人；数据库事务锁保证同时加入也只能占用一个客人席位。
+- 房间最多两人；边缘存储没有事务，并发加入靠乐观锁重试，仍保证只有一个客人拿到席位。
 - 临时断网自动重试，待发送消息按顺序去重，本轮已提交的词语保留。
 - 游戏时保持页面打开。刷新或手动重新加入会开始新局；原客人可凭本页令牌立即重入。浏览器被直接终止时，客人席位在约 90 秒无活动后可重新加入。
-- 房间两小时无访问即失效，过期房间在后续建房时清理。房主主动离开会关闭房间并删除消息。
+- 房间两小时无访问即失效；房主主动离开会关闭房间并删除消息。
 - 使用带随机盐的 SHA-256 承诺值锁词；双方锁定后才交换词语原文并校验。
-- 房间表与消息表在私有 schema 中，启用 RLS 并撤销浏览器角色直接读写权限。公开 RPC 校验独立随机席位令牌，只返回本人所在房间的信息。
-- 浏览器只配置项目 URL 和公开 publishable key；不能使用 secret 或 service_role key。玩游戏的人不需要注册 Supabase。
+- 房间数据存在账号下的私有边缘 KV 里，只有带席位令牌的请求能读写自己所在的房间。玩游戏的人不需要注册任何账号，浏览器里也没有任何密钥。
 
-Supabase 免费项目低活动一周后可能暂停，项目所有者可在控制台恢复：[官方说明](https://supabase.com/docs/guides/platform/free-project-pausing)。免费额度与限制以 [Supabase 定价](https://supabase.com/pricing) 为准。
+免费额度以 [ESA 定价](https://www.aliyun.com/product/esa) 为准：边缘函数免费版每天 10 万次请求，超出会返回 5XX，长期多人玩需要升级付费版。
 
 ## 本地检查
 
-需要 Node.js 22.13 或以上版本。前端没有第三方运行依赖，PGlite 仅用于测试实际 PostgreSQL 初始化脚本。
+需要 Node.js 22.13 或以上版本。整个项目没有第三方运行依赖。
 
 ```sh
 npm ci --ignore-scripts
@@ -41,23 +38,21 @@ npm test
 npm run dev
 ```
 
-开发预览仅监听本机。配置 Supabase 后可以直接联机；自动化测试使用本地 PostgreSQL 和真实 HTTP，不需要线上账户。
+开发预览仅监听本机，`/api/room` 用同一份房间协议的内存存储实现，直接就能联机测试，不需要任何云服务账户。自动化测试覆盖房间协议、真实 HTTP 双人对局、网络恢复和打包产物。
 
 ```sh
-npm run build
-npm run preview
+npm run build:esa
 ```
 
-`dist/` 使用相对路径，支持 GitHub Pages 子路径。构建时为完整 JavaScript 模块图和 CSS 生成统一内容版本，防止旧版联机脚本缓存。
+生成 `dist/esa/worker.js`：把网页资源、`server/protocol.mjs` 房间协议和 `edge/worker.mjs` 边缘函数打包成的单个文件，粘贴进 ESA 控制台即可上线。`npm run dev` / `npm run preview` 也可以直接预览 `dist/`。
 
 ## 文件与发布
 
 - `src/game.js`：提交、揭晓、胜利与准备协议。
-- `src/room.js`：Supabase HTTPS RPC、顺序发送、轮询及自动恢复。
-- `src/config.js`：项目 URL 与公开 publishable key。
-- `supabase/setup.sql`：私有表、权限与房间 RPC，可重复执行。
-- `test/`：实际 PostgreSQL、HTTP 双人对局、网络恢复、权限、公开配置与缓存检查。
+- `src/room.js`：`/api/room` 请求、顺序发送、轮询回显确认及自动恢复。
+- `src/config.js`：房间接口地址，默认与网页同源。
+- `server/protocol.mjs`：房间协议（create/join/poll/messages/leave），纯 JavaScript，本地与边缘函数共用。
+- `edge/worker.mjs`：ESA 边缘函数入口，`/api/room` 走协议 + 边缘 KV，其余路径返回内联静态资源。
+- `test/`：房间协议、HTTP 双人对局、网络恢复、配置校验与打包产物测试。
 
-GitHub 仓库的 `main` 保存源码，`gh-pages` 保存 `dist/`。Pages Source 为 **Deploy from a branch → gh-pages → / (root)**。`docs/pages-workflow.example.yml` 保留可选 Actions 示例；当前发布不需要增加 GitHub workflow 授权。
-
-完成 [接入步骤](docs/supabase-setup.md)、确认公开接口与跨设备对局正常后再发布。旧版房间码不迁移，两人应刷新网页并重新建房。
+发布流程：`npm run build:esa` → ESA 控制台粘贴 `dist/esa/worker.js` → 生成版本 → 发布到生产环境 → 绑定域名路由。详见 [接入步骤](docs/esa-setup.md)。旧版房间码不迁移，两人应刷新网页并重新建房。

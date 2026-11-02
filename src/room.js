@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
+import { ROOM_ENDPOINT } from './config.js';
 
 export function cleanName(value) {
   if (typeof value !== 'string') throw new Error('请输入昵称');
@@ -11,26 +11,20 @@ class ApiError extends Error {
   constructor(message, status, code) { super(message); this.status = status; this.code = code; }
 }
 
-function checkConfig(endpoint, apiKey) {
-  if (!endpoint || !apiKey) throw new ApiError('房间服务尚未开通，请稍后再试', 400);
+function checkConfig(endpoint) {
+  if (typeof endpoint !== 'string') throw new ApiError('房间服务尚未配置，请稍后再试', 400);
+  if (!endpoint) return; // 同源：网页和 /api/room 在同一个域名上
   let url;
   try { url = new URL(endpoint); } catch { throw new ApiError('房间服务地址配置无效，请稍后再试', 400); }
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   if (url.protocol !== 'https:' && !(local && url.protocol === 'http:')) throw new ApiError('房间服务地址需要使用 HTTPS', 400);
   if (url.pathname !== '/' || url.search || url.hash || url.username || url.password) throw new ApiError('房间服务地址配置无效，请稍后再试', 400);
-  let publicKey = /^sb_publishable_[A-Za-z0-9_-]+$/.test(apiKey);
-  if (!publicKey && apiKey.split('.').length === 3) {
-    try { publicKey = JSON.parse(atob(apiKey.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).role === 'anon'; }
-    catch { /* Invalid legacy anon key. */ }
-  }
-  if (!publicKey) throw new ApiError('请使用公开的 publishable key，不能使用管理员密钥', 400);
 }
 
 export class RoomConnection {
-  constructor(onEvent, { endpoint = SUPABASE_URL, apiKey = SUPABASE_PUBLISHABLE_KEY } = {}) {
+  constructor(onEvent, { endpoint = ROOM_ENDPOINT } = {}) {
     this.onEvent = onEvent;
-    this.endpoint = endpoint.replace(/\/$/, '');
-    this.apiKey = apiKey;
+    this.endpoint = (endpoint || '').replace(/\/$/, '');
     this.disposed = false;
     this.connected = false;
     this.requests = new Set();
@@ -71,15 +65,15 @@ export class RoomConnection {
   }
 
   async request(action, body = {}) {
-    checkConfig(this.endpoint, this.apiKey);
+    checkConfig(this.endpoint);
     const controller = new AbortController();
     this.requests.add(controller);
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
-      const response = await fetch(this.endpoint + '/rest/v1/rpc/word_meet', {
+      const response = await fetch(this.endpoint + '/api/room', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: this.apiKey },
-        body: JSON.stringify({ p_request: { action, code: this.code, token: this.token, ...body } }),
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ action, code: this.code, token: this.token, ...body }),
         credentials: 'omit', cache: 'no-store', redirect: 'error', signal: controller.signal,
       });
       let data;
@@ -87,7 +81,7 @@ export class RoomConnection {
       catch { throw new ApiError('房间服务器返回了无法识别的响应，请稍后重试', response.status >= 500 ? response.status : 503); }
       if (!response.ok) {
         const message = /^PT\d{3}$/.test(data.code) ? data.message
-          : data.code === 'PGRST202' || response.status === 404 ? '房间服务尚未初始化，请稍后再试'
+          : response.status === 404 ? '房间服务尚未初始化，请稍后再试'
           : [401, 403].includes(response.status) ? '房间服务配置需要更新，请稍后再试'
           : '房间服务暂时不可用，请稍后重试';
         throw new ApiError(message, response.status, data.details || data.code);
@@ -131,12 +125,18 @@ export class RoomConnection {
         this.onEvent({ type: 'online', connected: true });
       }
     } else if (recovered) this.onEvent({ type: 'online', connected: false });
-    for (const entry of data.messages || []) this.onEvent({ type: 'message', message: entry.message });
+    // 服务器会把本人发出的消息一并返回（回显确认）；只有对方的消息才交给游戏。
+    const confirmed = new Set();
+    for (const entry of data.messages || []) {
+      if (entry.sender === data.seat) confirmed.add(entry.clientId);
+      else this.onEvent({ type: 'message', message: entry.payload });
+    }
+    if (confirmed.size && this.outbox.length) this.outbox = this.outbox.filter((packet) => !confirmed.has(packet.id));
     this.after = Math.max(this.after, Number(data.after) || 0);
     void this.flush();
   }
 
-  schedule(delay = 750) {
+  schedule(delay = 1500) {
     if (this.disposed) return;
     clearTimeout(this.pollTimer);
     this.pollTimer = setTimeout(() => void this.poll(), delay);
@@ -145,7 +145,7 @@ export class RoomConnection {
   async poll() {
     if (this.disposed || this.polling || !this.token) return;
     this.polling = true;
-    let delay = typeof document !== 'undefined' && document.visibilityState === 'hidden' ? 2000 : 750;
+    let delay = typeof document !== 'undefined' && document.visibilityState === 'hidden' ? 3000 : 1500;
     try {
       const data = await this.request('poll', { after: this.after });
       this.applySnapshot(data);
@@ -154,7 +154,7 @@ export class RoomConnection {
       if (!this.disposed) {
         if (error instanceof ApiError && [400, 401, 403, 404].includes(error.status)) return this.fail(error.message);
         this.markUnavailable();
-        delay = Math.min(6000, 750 * 2 ** Math.min(this.failures, 3));
+        delay = Math.min(6000, 1500 * 2 ** Math.min(this.failures, 2));
       }
     } finally {
       this.polling = false;
@@ -182,10 +182,14 @@ export class RoomConnection {
       while (this.outbox.length && !this.disposed) {
         const packet = this.outbox[0];
         if (packet.message.sessionId !== this.sessionId) { this.outbox.shift(); continue; }
+        // 发送成功后要等下一次轮询回显确认这条消息已持久化，再把它从发件箱移除：
+        // 边缘存储没有事务，并发写冲突时服务器会静默丢弃一次写入，靠回显触发重发。
+        if (packet.inFlight || (packet.sentAt && Date.now() - packet.sentAt < 2500)) return;
+        packet.inFlight = true;
         try {
-          await this.request('messages', packet);
-          if (this.outbox[0] === packet) this.outbox.shift();
+          await this.request('messages', { id: packet.id, message: packet.message });
         } catch (error) {
+          packet.inFlight = false;
           if (this.disposed) return;
           if (error instanceof ApiError && error.code === 'SESSION_CHANGED') {
             this.outbox = this.outbox.filter((entry) => entry.message.sessionId !== packet.message.sessionId);
@@ -194,6 +198,10 @@ export class RoomConnection {
           else this.markUnavailable();
           return;
         }
+        packet.inFlight = false;
+        packet.sentAt = Date.now();
+        this.schedule(0);
+        if (this.outbox[0] === packet) return;
       }
     } finally { this.flushing = false; }
   }
@@ -215,9 +223,9 @@ export class RoomConnection {
     this.requests.clear();
     this.outbox = [];
     if (this.token && this.code) {
-      void fetch(this.endpoint + '/rest/v1/rpc/word_meet', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', apikey: this.apiKey },
-        body: JSON.stringify({ p_request: { action: 'leave', code: this.code, token: this.token } }), credentials: 'omit', keepalive: true,
+      void fetch(this.endpoint + '/api/room', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'leave', code: this.code, token: this.token }), credentials: 'omit', keepalive: true,
       }).catch(() => {});
     }
   }

@@ -1,31 +1,25 @@
-# 同词相遇：Supabase 联机
+# 同词相遇：ESA 边缘函数联机
 
-用户已确认使用 Supabase 免费托管。保留 GitHub Pages 和双人玩法，前端直接通过 HTTPS 调用 `public.word_meet(p_request jsonb)`，不再依赖受网络限制的浏览器直连或被拦截的 Sites 入口。
+把双人游戏的网页和房间后端整体迁移到阿里云 ESA 边缘函数，去掉 GitHub Pages 静态托管和 Supabase 数据库，整个应用只由一个边缘函数 + 边缘 KV 组成。
 
 ## 已实现
 
-- 独立私有 schema 保存房间与消息，启用 RLS，撤销匿名与已登录角色的直接表权限。
-- 单一 RPC 使用随机席位令牌鉴权，数据库只保存其 SHA-256；每次操作锁定房间行，避免多玩家抢同一个席位。
-- 复用现有游戏协议、消息顺序与去重、短暂断网重试和客人快速重入。
-- 客户端使用 `apikey` 传公开项目 key，房间令牌放在 RPC JSON 中。拒绝 secret/service_role key。
-- 原 D1 实现已移除；SQL 初始化脚本与注册步骤在仓库中可直接获取。
+- 房间协议（create / join / poll / messages / leave）从原 PostgreSQL RPC 移植为纯 JavaScript（`server/protocol.mjs`），协议、消息格式、PT 状态码和客户端行为完全不变。
+- 每个房间一个 JSON 文档存在边缘 KV；边缘存储没有事务，并发写用「读改写回 + writeId 校验 + 冲突重试」乐观锁收敛，客户端再靠轮询回显确认自己消息的持久化。
+- 边缘函数同时返回内联的网页资源：`POST /api/room` 走房间协议，其余路径返回 `dist/` 的 HTML/CSS/JS，浏览器默认同源访问，零跨域配置。
+- 本地开发与测试用同一份协议代码的内存存储实现，不再依赖 PostgreSQL / PGlite。
+- 保留了原版的房型语义：最多两人、90 秒客人席位保留、两小时房间有效期、随机盐承诺值锁词、消息按 (发送者, 消息编号) 去重。
 
 ## 验证边界
 
-本地用 PGlite 的真实 PostgreSQL 引擎执行同一份 SQL，并通过真实 HTTP 验证客户端多轮对局。PGlite 为单连接测试环境，不能代替线上 PostgreSQL 多连接并发验证。
+- 37 项自动化测试：协议级（并发加入、双发消息收敛、写入被覆盖后重试落盘、过期、边界校验、SHA-256 与 node:crypto 交叉比对）、真实 HTTP 双人对局、断网恢复，以及把**真实打包产物**在 Node 里注入内存 EdgeKV 跑完整流程。
+- 乐观锁收敛依赖存储的读后写可见性：内存存储和 Edge KV（写后作废边缘缓存、下次读回中心节点）都满足这个前提。KV 文档明确不建议每秒多次写同一 key，本应用每房间每 15 秒才写一次心跳。
+- 不能用强一致数据库的标准要求 KV：两个玩家在极窄时间窗内同时写入仍可能丢一次更新，该情形由轮询回显触发重发覆盖。已实测并发提交双方消息最终都落盘。
 
-2026-11-01：完整 31 项测试通过，前端构建通过。内置浏览器从邀请链接加入本地测试房间，完成“月亮 / 兔子 → 玉兔 / 玉兔”两轮，确认单方提交时隐藏对方词语、双方准备后进入下一轮和同词结束。独立审查未发现阻塞问题。
+2026-11-02：完整 37 项测试通过，`npm run build:esa` 生成 97 KB 单文件函数。本地预览服务器上 curl 完成建房、加入、双方提交与揭晓、回显、退出删房的完整流程，响应快照格式与客户端预期一致。ESA 线上发布步骤见 [esa-setup](esa-setup.md)。
 
-保留的限制：首次创建或加入成功但响应丢失时，客户端无法恢复尚未收到的席位令牌；客人席位最多需要约 90 秒释放。自动重试覆盖已建立的连接与待发送消息。
+保留的限制：首次创建或加入成功但响应丢失时，客户端无法恢复尚未收到的席位令牌；客人席位最多需要约 90 秒释放。过期房间在 KV 中残留，需用 OpenAPI 清理。
 
-2026-11-01：用户已连接 Supabase 并选择组织 `CSQ-AN94's Org`。免费项目 `word-meet` 已创建于新加坡，项目 ID 为 `dmprudhtcvhbfavzxirz`；已应用 `word_meet_rooms` 初始化迁移并配置公开 publishable key。
+## 历史
 
-真实公网检查通过：health 返回 200/protocol 3；来自 GitHub Pages 的 CORS 与预检正常；两个并发加入返回 200/409；错误席位令牌返回 401；重复消息只收到一次；通过 Data API 直接访问私有 schema 返回 406。测试房间已用本次生成的房主令牌关闭。
-
-数据库权限检查确认：两张表均启用 RLS，anon/authenticated 均无直接表权限，anon 无私有 schema 的 USAGE 权限，只能调用公开房间函数。当前 Advisors 的“RLS 无策略”提示对应故意封闭的私有表；公开 SECURITY DEFINER 提示对应使用席位令牌鉴权的房间接口，并非 Supabase Auth 用户接口。函数固定空 search_path，轮询、发消息与退出前均校验令牌。参考 [私有表无策略提示](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)、[匿名可执行函数提示](https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable) 和 [已登录用户可执行函数提示](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable)。新建表的索引尚未有使用统计，保留用于消息轮询与过期清理。
-
-GitHub Pages 已完成发布，分支提交 `6ef0efef95c5a1b108d6d39f90f5c6d94aed8c18` 的构建状态为 `built`，公开网页已加载模块版本 `6208c17a40e2`。通过内置浏览器从原网址创建房间并用邀请链接加入，正式 Supabase 项目上完成“月亮 / 兔子 → 玉兔 / 玉兔”两轮，双方均显示成功。单方锁词保密、双方准备和历史记录显示正常；已退出并关闭本次测试房间。截图保存在本地 `artifacts/supabase-live-game.jpg`。
-
-实际 Safari 和同学设备的跨网络可达性仍需由他们刷新并重新建房确认；未把同一台电脑的双标签测试写成不同设备实测。
-
-先前 Sites 部署虽返回成功，但公开访问在自动验证与用户 Safari 均返回 Cloudflare 403；已停止访问该入口，也没有把 GitHub Pages 指向它。
+- 2026-11-01 版本曾用 Supabase 免费项目（GitHub Pages 网页 + PostgreSQL RPC）。ESA 迁移保留了其全部对局协议与安全语义（席位令牌只存哈希、承诺值锁词、私有数据不暴露给匿名调用），把数据库事务换成边缘存储上的乐观锁。原 Supabase 项目的下线由项目所有者自行决定。

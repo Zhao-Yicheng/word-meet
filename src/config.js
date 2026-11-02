@@ -1,3 +1,3 @@
-// Both values are public browser configuration. Never use a secret/service_role key.
-export const SUPABASE_URL = "https://dmprudhtcvhbfavzxirz.supabase.co";
-export const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_k0vWjTIH0kvm4ydJ3ZnsaQ_5YZkIxjc";
+// 房间接口地址。留空（默认）表示与网页同源：ESA 部署时网页和 /api/room 共用一个域名。
+// 只有在函数和网页不同域（例如调试函数的临时预览域名）时才需要填写完整 HTTPS 地址，结尾不带斜杠。
+export const ROOM_ENDPOINT = "";
