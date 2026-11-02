@@ -33,9 +33,10 @@ const ASSETS = new Map([
   ['/favicon.svg', { body: faviconSvg, type: 'image/svg+xml', cache: 'public, max-age=3600' }],
 ]);
 
-// 函数变量可能作为 fetch 的第二个参数传入，也可能挂在全局上，两种写法都兼容。
+// 函数变量由 ESA 注入：env 是 fetch 入口的第三个参数（第二个是 context）。
+// 注意 env 是惰性解析的——只有直接读 env.XXX 才会解析，不能用 Object.keys 枚举。
 function resolveEnv(env) {
-  if (env && typeof env === 'object' && Object.keys(env).length > 0) return env;
+  if (env && typeof env === 'object') return env;
   const scope = typeof globalThis !== 'undefined' ? globalThis : {};
   if (scope.env && typeof scope.env === 'object') return scope.env;
   if (scope.__ENV && typeof scope.__ENV === 'object') return scope.__ENV;
@@ -91,7 +92,6 @@ async function handleApi(request, env) {
   // 诊断动作：只回报变量是否存在、存储是否连通，绝不回显密钥内容。
   if (body.action === 'diagnose') {
     const report = {
-      envKeys: Object.keys(env || {}).length,
       hasEndpoint: Boolean(env.OTS_ENDPOINT),
       hasInstance: Boolean(env.OTS_INSTANCE),
       hasAccessKeyId: Boolean(env.OTS_ACCESS_KEY_ID),
@@ -132,7 +132,8 @@ function serveAsset(url) {
 }
 
 export default {
-  async fetch(request, env) {
+  // env 是第三个参数（第二个 context 是 ESA 运行时上下文）
+  async fetch(request, context, env) {
     const url = new URL(request.url);
     if (url.pathname === '/api/room') return handleApi(request, resolveEnv(env));
     return serveAsset(url);
