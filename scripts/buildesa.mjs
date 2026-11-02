@@ -34,8 +34,9 @@ async function bundle(entryFile) {
     result += source.slice(cursor, match.index);
     cursor = match.index + match[0].length;
     const resolved = path.resolve(base, match[3]);
-    const isServerModule = resolved.startsWith(path.join(root, 'server') + path.sep);
-    if (isServerModule) {
+    // 本地 .mjs 源码模块（server/ 协议层、edge/ 工具库）内联；其余当作静态资源转成字符串。
+    const isSourceModule = resolved.endsWith('.mjs') && resolved.startsWith(root) && resolved !== entry;
+    if (isSourceModule) {
       if (match[1]) throw new Error(`不支持默认导入模块：${match[0]}`);
       result += `\n// ---- 内联模块：${path.relative(root, resolved).split(path.sep).join('/')} ----\n`;
       result += await readModuleCode(resolved);
