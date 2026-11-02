@@ -2,6 +2,8 @@
 
 双人在线联想游戏。两人分别输入词语，提交后同时揭晓，再结合上轮两个词继续联想，直到词语相同。
 
+> 本项目 fork 自 [CSQ-AN94/word-meet](https://github.com/CSQ-AN94/word-meet)（作者 Siqi Cai），沿用其玩法与界面，把联机后端从 Supabase 换成了阿里云 ESA 边缘函数。上游仓库未声明许可证，来源与权利归属见 [NOTICE.md](NOTICE.md)。
+
 部署在阿里云 ESA：网页和房间后端打包进同一个边缘函数，存储用边缘 KV，不需要源站服务器。[ESA 部署步骤](docs/esa-setup.md)
 
 ## 开始游戏
@@ -52,7 +54,15 @@ npm run build:esa
 - `src/room.js`：`/api/room` 请求、顺序发送、轮询回显确认及自动恢复。
 - `src/config.js`：房间接口地址，默认与网页同源。
 - `server/protocol.mjs`：房间协议（create/join/poll/messages/leave），纯 JavaScript，本地与边缘函数共用。
-- `edge/worker.mjs`：ESA 边缘函数入口，`/api/room` 走协议 + 边缘 KV，其余路径返回内联静态资源。
+- `edge/worker.mjs`：ESA 边缘函数入口，`/api/room` 走协议 + Tablestore，其余路径返回内联静态资源。
+- `edge/ots.mjs`：零依赖的 Tablestore HTTP 客户端（手写签名与 PlainBuffer 编码）。
+- `src/host.js`：把 `xn--` 域名解回中文，仅用于展示邀请链接。
 - `test/`：房间协议、HTTP 双人对局、网络恢复、配置校验与打包产物测试。
 
 发布流程：`npm run build:esa` → ESA 控制台粘贴 `dist/esa/worker.js` → 生成版本 → 发布到生产环境 → 绑定域名路由。详见 [接入步骤](docs/esa-setup.md)。旧版房间码不迁移，两人应刷新网页并重新建房。
+
+## 来源与许可
+
+本仓库是 [CSQ-AN94/word-meet](https://github.com/CSQ-AN94/word-meet) 的 fork，原作者 Siqi Cai。玩法、界面与对局协议来自上游；联机后端替换为阿里云 ESA 边缘函数 + Tablestore。
+
+**上游仓库没有 LICENSE 文件**，GitHub 也识别不出许可证，按默认规则属保留所有权利。本项目保留上游提交历史并在页面署名，但这不构成再许可。完整说明见 [NOTICE.md](NOTICE.md)。

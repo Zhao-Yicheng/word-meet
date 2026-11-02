@@ -44,3 +44,10 @@
   .journey-merged{min-height:92px}
   .journey-merged>bdi{font-size:26px}
 }
+
+/* 来源署名：页脚一行，克制的下划线链接。 */
+.site-footer{flex-wrap:wrap;gap:6px 18px}
+.site-footer>span:first-child{display:flex;align-items:center;flex-wrap:wrap;gap:0 4px}
+.footer-link{text-decoration:underline;text-underline-offset:3px;text-decoration-color:#c3c7b8;text-decoration-thickness:1px}
+.footer-link:hover{color:var(--coral);text-decoration-color:currentColor}
+@media(max-width:760px){.site-footer{gap:4px 12px}.site-footer>span:first-child{line-height:1.8}}
