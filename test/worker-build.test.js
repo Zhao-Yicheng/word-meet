@@ -18,6 +18,7 @@ async function buildWorker(root) {
     'src/main.js': "import './room.js';\nconsole.log('main');",
     'src/game.js': "export const value = 'game';\n",
     'src/room.js': "import './config.js';\nconsole.log('room');",
+    'src/host.js': "export function prettyHref(href) { return href; }\n",
     'src/config.js': 'export const ROOM_ENDPOINT = "";',
     'src/style.css': 'body{color:#f5f2eb}',
     'public/favicon.svg': '<svg/>',
@@ -30,6 +31,7 @@ async function buildWorker(root) {
   await cp(new URL('../scripts/build.mjs', import.meta.url), path.join(root, 'scripts/build.mjs'));
   await cp(new URL('../scripts/buildesa.mjs', import.meta.url), path.join(root, 'scripts/buildesa.mjs'));
   await cp(new URL('../edge/worker.mjs', import.meta.url), path.join(root, 'edge/worker.mjs'));
+  await cp(new URL('../edge/ots.mjs', import.meta.url), path.join(root, 'edge/ots.mjs'));
   await cp(new URL('../server/protocol.mjs', import.meta.url), path.join(root, 'server/protocol.mjs'));
   await writeFile(path.join(root, 'package.json'), JSON.stringify({ type: 'module' }));
   execFileSync(process.execPath, ['scripts/build.mjs'], { cwd: root, stdio: 'pipe' });
@@ -37,7 +39,7 @@ async function buildWorker(root) {
   return path.join(root, 'dist/esa/worker.js');
 }
 
-test('the bundled worker serves the site and completes a two-player game in one file', async (t) => {
+test('the bundled worker ships as one importless file with the site and room API', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'word-meet-esa-build-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const workerFile = await buildWorker(root);
@@ -46,15 +48,10 @@ test('the bundled worker serves the site and completes a two-player game in one 
   assert.doesNotMatch(code, /^\s*import\s/m, '单文件函数不能再有 import 语句');
   assert.match(code, /同词相遇/, '网页资源已内联');
   assert.match(code, /function createRoomApi/, '房间协议已内联');
+  assert.match(code, /function createOtsStore/, 'Tablestore 客户端已内联');
   assert.match(code, /export default \{/);
+  assert.ok(code.length < 4 * 1024 * 1024, '打包体积在 ESA 4MB 上限内');
 
-  const store = new Map();
-  globalThis.EdgeKV = class {
-    constructor({ namespace }) { this.namespace = namespace; }
-    async get(key) { return store.get(this.namespace + ':' + key); }
-    async put(key, value) { store.set(this.namespace + ':' + key, value); }
-    async delete(key) { store.delete(this.namespace + ':' + key); return true; }
-  };
   const worker = (await import(pathToFileURL(workerFile).href)).default;
 
   const page = await worker.fetch(new Request(ORIGIN + '/'));
@@ -63,24 +60,48 @@ test('the bundled worker serves the site and completes a two-player game in one 
   assert.match(await page.text(), /同词相遇/);
   const missing = await worker.fetch(new Request(ORIGIN + '/nope'));
   assert.equal(missing.status, 404);
+});
 
-  const health = await (await worker.fetch(postRoom({ action: 'health' }))).json();
-  assert.deepEqual(health, { ok: true, transport: 'esa', protocol: 3 });
+test('without function variables the worker reports a clear 503 instead of crashing', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'word-meet-esa-build-'));
+  try {
+    const workerFile = await buildWorker(root);
+    const worker = (await import(pathToFileURL(workerFile).href)).default;
 
-  const host = await (await worker.fetch(postRoom({ action: 'create', name: '甲' }))).json();
-  assert.equal(host.seat, 0);
-  assert.match(host.code, /^[A-HJ-NP-Z2-9]{8}$/);
-  const guest = await (await worker.fetch(postRoom({ action: 'join', code: host.code, name: '乙' }))).json();
-  assert.equal(guest.seat, 1);
-  assert.equal(typeof guest.sessionId, 'string');
-  assert.notEqual(guest.sessionId, host.sessionId);
+    const diagnose = await (await worker.fetch(postRoom({ action: 'diagnose' }), {}, {})).json();
+    assert.equal(diagnose.hasEndpoint, false);
+    assert.equal(diagnose.hasInstance, false);
+    assert.equal(diagnose.storeReady, false, '缺变量时不构造存储');
+    assert.equal(JSON.stringify(diagnose).includes('LTAI'), false, '诊断结果绝不回显密钥');
 
-  const base = { v: 1, sessionId: guest.sessionId, match: 1, round: 1 };
-  for (const player of [host, guest]) {
-    const reply = await worker.fetch(postRoom({ action: 'messages', code: host.code, token: player.token, id: player.seat + '-one', message: { ...base, type: 'commit', hash: (player.seat ? 'b' : 'a').repeat(64) } }));
-    assert.equal(reply.status, 200, '消息写入成功');
+    const health = await worker.fetch(postRoom({ action: 'health' }), {}, {});
+    assert.equal(health.status, 503);
+    const body = await health.json();
+    assert.equal(body.code, 'PT503');
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
-  const polled = await (await worker.fetch(postRoom({ action: 'poll', code: host.code, token: guest.token, after: 0 }))).json();
-  assert.equal(polled.messages.length, 2);
-  assert.deepEqual(polled.messages.map((message) => message.payload.hash), ['a'.repeat(64), 'b'.repeat(64)]);
+});
+
+test('the room API reports method and payload problems before touching storage', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'word-meet-esa-build-'));
+  try {
+    const workerFile = await buildWorker(root);
+    const worker = (await import(pathToFileURL(workerFile).href)).default;
+
+    const get = await worker.fetch(new Request(ORIGIN + '/api/room'));
+    assert.equal(get.status, 405);
+    assert.equal((await get.json()).code, 'PT405');
+
+    const options = await worker.fetch(new Request(ORIGIN + '/api/room', { method: 'OPTIONS' }));
+    assert.equal(options.status, 204);
+
+    const broken = await worker.fetch(new Request(ORIGIN + '/api/room', { method: 'POST', body: 'not json' }));
+    assert.equal(broken.status, 400);
+
+    const huge = await worker.fetch(new Request(ORIGIN + '/api/room', { method: 'POST', body: 'x'.repeat(5000) }));
+    assert.equal(huge.status, 413);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

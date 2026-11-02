@@ -1,5 +1,6 @@
 import { GameSession, parseRoomCode } from './game.js';
 import { RoomConnection, cleanName } from './room.js';
+import { prettyHref } from './host.js';
 
 const $ = (id) => document.getElementById(id);
 const state = { mode: 'create', busy: false, inRoom: false, connected: false, code: '', role: '', game: null, network: null, names: [], seat: 0, protocolError: false };
@@ -50,6 +51,14 @@ function inviteURL() {
   const url = new URL(location.href);
   url.search = '';
   url.hash = new URLSearchParams({ room: state.code }).toString();
+  return prettyHref(url.href);
+}
+
+// 系统分享面板要的是严格合法的 ASCII URL，中文域名交给它可能被拒绝或被二次编码。
+function shareURL() {
+  const url = new URL(location.href);
+  url.search = '';
+  url.hash = new URLSearchParams({ room: state.code }).toString();
   return url.href;
 }
 
@@ -63,7 +72,8 @@ function enterRoom(code) {
   $('invite-url').value = inviteURL();
   $('share-url').value = inviteURL();
   $('waiting-name').textContent = state.name;
-  history.replaceState(null, '', inviteURL());
+  // 地址栏交给浏览器自己显示中文域名，这里只写 ASCII 形式，避免历史记录里出现编码差异。
+  history.replaceState(null, '', shareURL());
 }
 
 function connectionStatus(text, status) {
@@ -399,7 +409,7 @@ $('copy-code').addEventListener('click', async () => {
   } catch { openShare(); }
 });
 $('native-share').addEventListener('click', async () => {
-  try { await navigator.share({ title: '同词相遇 · 双人联想游戏', text: '邀请你加入同词相遇房间。', url: inviteURL() }); }
+  try { await navigator.share({ title: '同词相遇 · 双人联想游戏', text: '邀请你加入同词相遇房间。', url: shareURL() }); }
   catch (error) { if (error.name !== 'AbortError') toast('分享未完成，可以复制邀请链接。'); }
 });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') state.network?.ping(); });

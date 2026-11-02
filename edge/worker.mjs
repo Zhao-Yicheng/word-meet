@@ -10,6 +10,7 @@ import indexHtml from '../dist/index.html';
 import mainJs from '../dist/src/main.js';
 import gameJs from '../dist/src/game.js';
 import roomJs from '../dist/src/room.js';
+import hostJs from '../dist/src/host.js';
 import configJs from '../dist/src/config.js';
 import styleCss from '../dist/src/style.css';
 import faviconSvg from '../dist/favicon.svg';
@@ -28,6 +29,7 @@ const ASSETS = new Map([
   ['/src/main.js', { body: mainJs, type: 'text/javascript; charset=utf-8', cache: 'public, max-age=31536000, immutable' }],
   ['/src/game.js', { body: gameJs, type: 'text/javascript; charset=utf-8', cache: 'public, max-age=31536000, immutable' }],
   ['/src/room.js', { body: roomJs, type: 'text/javascript; charset=utf-8', cache: 'public, max-age=31536000, immutable' }],
+  ['/src/host.js', { body: hostJs, type: 'text/javascript; charset=utf-8', cache: 'public, max-age=31536000, immutable' }],
   ['/src/config.js', { body: configJs, type: 'text/javascript; charset=utf-8', cache: 'public, max-age=31536000, immutable' }],
   ['/src/style.css', { body: styleCss, type: 'text/css; charset=utf-8', cache: 'public, max-age=31536000, immutable' }],
   ['/favicon.svg', { body: faviconSvg, type: 'image/svg+xml', cache: 'public, max-age=3600' }],

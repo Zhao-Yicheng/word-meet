@@ -32,7 +32,11 @@ test('words keep meaningful differences while trimming their boundaries', () => 
 test('room entry accepts a code or our invitation link and rejects other input', () => {
   assert.equal(parseRoomCode('abcd-2345'), 'ABCD2345');
   assert.equal(parseRoomCode('https://example.com/word-meet/#room=ABCD2345'), 'ABCD2345');
-  for (const invalid of ['', 'ABC12345', 'javascript:alert(1)', 'ABCDEFGH-extra']) {
+  // 中文域名不论带不带协议头都要能认出来（邀请链接显示的就是中文域名）。
+  assert.equal(parseRoomCode('https://word-meet.奶龙传媒学院.com/#room=ABCD2345'), 'ABCD2345');
+  assert.equal(parseRoomCode('word-meet.奶龙传媒学院.com/#room=ABCD2345'), 'ABCD2345');
+  assert.equal(parseRoomCode('https://word-meet.xn--dpqu5wnyaiyf17sktl.com/#room=ABCD2345'), 'ABCD2345');
+  for (const invalid of ['', 'ABC12345', 'javascript:alert(1)', 'ABCDEFGH-extra', 'word-meet.奶龙传媒学院.com']) {
     assert.throws(() => parseRoomCode(invalid));
   }
 });

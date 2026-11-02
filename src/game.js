@@ -9,8 +9,11 @@ export function cleanWord(value) {
 
 export function parseRoomCode(value) {
   let code = String(value).trim();
-  if (/^https?:\/\//i.test(code)) {
-    const url = new URL(code);
+  // 聊天软件里粘出来的链接经常没有协议头，补上再解析；纯房间码不会有 . / # ? 这些字符。
+  const hasScheme = /^https?:\/\//i.test(code);
+  const looksLikeLink = hasScheme || /[/#?]/.test(code) || /\.[a-z\u00a0-\uffff]{2,}$/i.test(code);
+  if (looksLikeLink) {
+    const url = new URL(hasScheme ? code : 'https://' + code);
     code = new URLSearchParams(url.hash.slice(1)).get('room') || '';
   }
   code = code.replace(/[\s-]/g, '').toUpperCase();
